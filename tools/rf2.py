@@ -9,8 +9,8 @@ from pyRfactor2SharedMemory import rF2data
 
 
 class RF2Client(fanatec_led_server.Client):
-    def __init__(self, ev, dbus=True, device=None, display='gear'):
-        fanatec_led_server.Client.__init__(self, ev, dbus, device, display)
+    def __init__(self, ev, wheel, dbus=True, device=None, display='gear',verbose=False):
+        fanatec_led_server.Client.__init__(self, ev, wheel, dbus, device, display)
         self._scoring = None
         self._tele = None
         self._player_index = None

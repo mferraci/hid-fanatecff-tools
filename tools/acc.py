@@ -6,8 +6,8 @@ import pyacc
 
 
 class AccClient(fanatec_led_server.Client):
-    def __init__(self, ev, dbus=True, device=None, display='gear'): 
-        fanatec_led_server.Client.__init__(self, ev, dbus, device, display)
+    def __init__(self, ev, wheel, dbus=True, device=None, display='gear', verbose=False): 
+        fanatec_led_server.Client.__init__(self, ev, wheel, dbus, device, display, verbose)
         self.physics = None
         self.mmap_check_cnt = 0
 

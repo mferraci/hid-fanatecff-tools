@@ -45,7 +45,7 @@ class AMS2DataParser:
     A class holding helper methods for parsing the data from the UDP packets
     """
 
-    def __init__(self, verbose=False):
+    def __init__(self, verbose=True):
         self.verbose = verbose
 
     @staticmethod
@@ -123,6 +123,7 @@ class AMS2DataParser:
             gear = self.get_gear(data)
             rpm = self.get_rpm(data)
             max_rpm = self.get_max_rpm(data)
+            print("MAX RPM: ", max_rpm)
             speed = self.get_speed(data)
             return CarData(gear, rpm, max_rpm, speed)
         else:
@@ -136,11 +137,13 @@ class AMS2Client(fanatec_led_server.Client):
     def __init__(
         self,
         ev,
+        wheel,
         dbus=True,
         device=None,
         display="gear",
+        verbose="False",
     ):
-        fanatec_led_server.Client.__init__(self, ev, dbus, device, display)
+        fanatec_led_server.Client.__init__(self, ev, wheel, dbus, device, display,verbose)
         self.data_parser = AMS2DataParser()
 
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -162,7 +165,8 @@ class AMS2Client(fanatec_led_server.Client):
     def tick(self):
         ready = select.select([self.sock], [], [], 0.2)
         if not ready[0]:
-            print("Timeout waiting for AMS2 data,", self.timeout_cnt)
+            if self._verbose:
+                print("Timeout waiting for AMS2 data,", self.timeout_cnt)
             self.timeout_cnt += 1
             if self.timeout_cnt > 10:
                 raise Exception("Too many timeouts received!")
@@ -173,6 +177,8 @@ class AMS2Client(fanatec_led_server.Client):
 
         # returns None if the packet is not a car physics packet
         car_data: CarData = self.data_parser.process_packet(packet)
+        if self._verbose:
+            print(car_data)
 
         # not yet implemented stuff
         self._absInAction = False
@@ -182,7 +188,11 @@ class AMS2Client(fanatec_led_server.Client):
         if car_data is not None:
             # currently implemented stuff
             self._gear = car_data.gear
-            self._revLightsPercent = 100 * car_data.rpm / car_data.max_rpm
+
+            self._revLightsPercent = self.rpms_to_revlights(car_data.rpm,car_data.max_rpm)
+            if self._verbose:
+                print("Car RPM ", car_data.rpm)
+                print(car_data.rpm - 0.9 * car_data.max_rpm)
             self._speedKmh = car_data.speed
 
         return True

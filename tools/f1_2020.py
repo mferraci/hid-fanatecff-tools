@@ -11,8 +11,8 @@ class F12020Client(fanatec_led_server.Client):
     UDP_IP = "127.0.0.1"
     UDP_PORT = 20777
 
-    def __init__(self, ev, dbus=True, device=None, display='gear'): 
-        fanatec_led_server.Client.__init__(self, ev, dbus, device, display)
+    def __init__(self, ev, wheel, dbus=True, device=None, display='gear',verbose="False"): 
+        fanatec_led_server.Client.__init__(self, ev, wheel, dbus, device, display)
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.bind((F12020Client.UDP_IP, F12020Client.UDP_PORT))
         self.sock.setblocking(0)

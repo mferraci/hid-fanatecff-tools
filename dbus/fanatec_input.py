@@ -2,6 +2,8 @@
 import os
 import glob
 import logging
+import re
+import time
 
 from pydbus.generic import signal
 from pydbus import SystemBus
@@ -21,24 +23,30 @@ CSL_DD_WHEELBASE_DEVICE_ID = "0020"
 CSR_ELITE_WHEELBASE_DEVICE_ID = "0011"
 
 # Wheel IDs
-CSL_STEERING_WHEEL_P1_V2 = "08"
-CSL_ELITE_STEERING_WHEEL_WRC_ID = "04"
-CSL_ELITE_STEERING_WHEEL_MCLAREN_GT3_V2_ID = "0b"
-CLUBSPORT_STEERING_WHEEL_F1_IS_ID = "21"
-CLUBSPORT_STEERING_WHEEL_FORMULA_V2_ID = "0a"
-PODIUM_STEERING_WHEEL_PORSCHE_911_GT3_R_ID = "0c"
+CLUBSPORT_STEERING_WHEEL_F1_ES_V2_ID = "01"
+CSL_STEERING_WHEEL_P1_V2 = "02"
+CSL_ELITE_STEERING_WHEEL_WRC_ID = "03"
+CSL_ELITE_STEERING_WHEEL_MCLAREN_GT3_V2_ID = "04"
+CLUBSPORT_STEERING_WHEEL_F1_IS_ID = "05"
+CLUBSPORT_STEERING_WHEEL_FORMULA_V2_ID = "06"
+PODIUM_STEERING_WHEEL_PORSCHE_911_GT3_R_ID = "07"
 
-
-def get_sysfs_base(PID):
+def get_sysfs_base(verbose=False):
     sysfs_pattern = (
-        "/sys/module/hid_fanatec/drivers/hid:fanatec/0003:%s:%s.*"
-        % (FANATEC_VENDOR_ID, PID)
+        "/sys/module/hid_fanatec/drivers/hid:fanatec/0003:%s:*"
+        % (FANATEC_VENDOR_ID)
     )
-    sysfs = glob.glob(sysfs_pattern)
-    if len(sysfs) == 0:
-        raise Exception("Device with PID=%s not found (%s)" % (PID, sysfs_pattern))
-    return sysfs[0]
+    while len(glob.glob(sysfs_pattern)) == 0:
+        if verbose:
+            print("Waiting for Fanatec device...")
+        time.sleep(5)
+    #sysfs = glob.glob(sysfs_pattern)
+    #if len(sysfs) == 0:
+    #    raise Exception("No fanatec Device found. Please connect your devise sure and ensure it is turned on. Sys module: (%s)" % (PID, sysfs_pattern))
+    return glob.glob(sysfs_pattern)[0]
 
+def get_device(verbose=False):
+        return get_sysfs_base(verbose).split(".")[0].split(":")[-1]
 
 class FanatecWheelBase(object):
     """
@@ -93,12 +101,13 @@ class CSLElite(object):
     </node>
     """
 
-    def __init__(self):
-        pass
+
+    def __init__(self, verbose=False):
+         self._verbose = verbose
 
     @staticmethod
-    def get_sysfs(self, name, device=CSL_ELITE_PS4_WHEELBASE_DEVICE_ID):
-        return "%s/%s" % (get_sysfs_base(CSL_ELITE_PS4_WHEELBASE_DEVICE_ID), name)
+    def get_sysfs(self, name):
+        return "%s/%s" % (get_sysfs_base(), name)
 
     def tuning_get(self, name):
         return int(open(self.get_sysfs(name), "r").read())
@@ -201,12 +210,12 @@ class CSLElitePedals(object):
     </node>
     """
 
-    def __init__(self):
-        pass
+    def __init__(self, verbose):
+        self._verbose = verbose
 
     @staticmethod
-    def get_sysfs(self, name, device=CSL_ELITE_PEDALS_DEVICE_ID):
-        return "%s/%s" % (get_sysfs_base(device), name)
+    def get_sysfs(self, name):
+        return "%s/%s" % (get_sysfs_base(), name)
 
     @property
     def Load(self):
@@ -237,39 +246,41 @@ class CSLEliteWheel(object):
       </interface>
     </node>
     """
-
     LEDS = 9
 
-    def __init__(self):
-        pass
+    def __init__(self, verbose=False):
+        self._verbose = verbose
 
     @staticmethod
-    def get_sysfs(name, device=CSL_ELITE_PS4_WHEELBASE_DEVICE_ID):
-        return "%s/%s" % (get_sysfs_base(device), name)
+    def get_sysfs(name):
+        return "%s/%s" % (get_sysfs_base(), name)
 
     @staticmethod
-    def get_sysfs_rpm(device=CSL_ELITE_PS4_WHEELBASE_DEVICE_ID):
-        sysfs_base = get_sysfs_base(device)
+    def get_sysfs_rpm():
+        sysfs_base = get_sysfs_base()
         return "%s/leds/0003:0EB7:%s.%s::RPM" % (
             sysfs_base,
-            device,
+            get_device(),
             sysfs_base.split(".")[-1],
         )
 
     @staticmethod
     def set_sysfs_rpm(
-        rev_lights_percent: float, device=CSL_ELITE_PS4_WHEELBASE_DEVICE_ID
-    ):
+        rev_lights_percent: float):
         leds = [
             100 * i / CSLEliteWheel.LEDS < rev_lights_percent
             for i in range(CSLEliteWheel.LEDS)
         ]
-        print("leds:", leds)
-        print("rev_lights_percent:", rev_lights_percent)
+
+        if self._verbose:
+            print("leds:", leds)
+            print("rev_lights_percent:", rev_lights_percent)
+            print("RPM base path: ",CSLEliteWheel.get_sysfs_rpm())
+
         value = list(
             map(
                 lambda i: open(
-                    "%s%i/brightness" % (CSLEliteWheel.get_sysfs_rpm(device), i[0] + 1),
+                    "%s%i/brightness" % (CSLEliteWheel.get_sysfs_rpm(), i[0] + 1),
                     "w",
                 ).write("1" if i[1] else "0"),
                 enumerate(leds),
@@ -307,21 +318,24 @@ class CSLP1V2Wheel(object):
     </node>
     """
 
-    @staticmethod
-    def get_sysfs(name, device=CSL_DD_WHEELBASE_DEVICE_ID):
-        return "%s/%s" % (get_sysfs_base(device), name)
+    def __init__(self, verbose=False):
+        self._verbose = verbose
 
     @staticmethod
-    def get_sysfs_rpm(device=CSL_DD_WHEELBASE_DEVICE_ID):
-        sysfs_base = get_sysfs_base(device)
+    def get_sysfs(name):
+        return "%s/%s" % (get_sysfs_base(), name)
+
+    @staticmethod
+    def get_sysfs_rpm():
+        sysfs_base = get_sysfs_base()
         return "%s/leds/0003:0EB7:%s.%s::RPM" % (
             sysfs_base,
-            device,
+            get_device(),
             sysfs_base.split(".")[-1],
         )
 
     @staticmethod
-    def set_sysfs_rpm(value, device=CSL_DD_WHEELBASE_DEVICE_ID):
+    def set_sysfs_rpm(value):
         """
         On the CSL DD P1 V2 (and likely the BMW Wheel)
         there is a single LED light that changes colour.

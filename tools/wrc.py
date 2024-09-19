@@ -28,13 +28,14 @@ class WrcClient(fanatec_led_server.Client):
     UDP_IP = "127.0.0.1"
     UDP_PORT = 20778
 
-    def __init__(self, ev, dbus=True, device=None, display='gear'):
-        fanatec_led_server.Client.__init__(self, ev, dbus, device, display)
+    def __init__(self, ev, wheel, dbus=True, device=None, display='gear', verbose=False):
+        fanatec_led_server.Client.__init__(self, ev, wheel, dbus, device, display)
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.sock.bind((WrcClient.UDP_IP, WrcClient.UDP_PORT))
         self.sock.setblocking(0)
         self.timeout_cnt = 0
+        self._verbose = verbose
 
     def prerun(self):
         while not self.ev.is_set():
@@ -47,7 +48,8 @@ class WrcClient(fanatec_led_server.Client):
     def tick(self):
         ready = select.select([self.sock], [], [], .2)
         if not ready[0]:
-            print(f'Timeout waiting for WRC data, {self.timeout_cnt}')
+            if self._verbose:
+                print(f'Timeout waiting for WRC data, {self.timeout_cnt}')
             self.timeout_cnt += 1
             if self.timeout_cnt > 10:
                 raise Exception('Too many timeouts received!')

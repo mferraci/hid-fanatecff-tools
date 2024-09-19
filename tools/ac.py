@@ -26,14 +26,14 @@ class AcClient(fanatec_led_server.Client):
     SUBSCRIBE_SPOT = 2
     DISMISS = 3
 
-    def __init__(self, ev, dbus=True, device=None, display="gear"):
-        fanatec_led_server.Client.__init__(self, ev, dbus, device, display)
+    def __init__(self, ev, wheel, dbus=True, device=None, display="gear", verbose=False):
+        fanatec_led_server.Client.__init__(self, ev, wheel, dbus, device, display)
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.setblocking(0)
         self.timeout_cnt = 0
         self.revbase = None
-        self.revmax = None
         self._gear = 0
+        self._verbose = verbose
 
     @staticmethod
     def client_data(sock, operation):
@@ -82,10 +82,12 @@ class AcClient(fanatec_led_server.Client):
             if self.revmax is None:
                 if car_name in car_data:
                     self.revmax = int(car_data[car_name])
-                    print("Max revs for '%s': %i" % (car_name, self.revmax))
+                    if self._verbose:
+                        print("Max revs for '%s': %i" % (car_name, self.revmax))
                 else:
                     self.revmax = 9000
-                    print("Car '%s' not found in car_data! Setting max revs to %i." % (car_name, self.revmax))
+                    if self._verbose:
+                        print("Car '%s' not found in car_data! Setting max revs to %i." % (car_name, self.revmax))
 
             # confirm
             AcClient.client_data(self.sock, AcClient.SUBSCRIBE_UPDATE)
@@ -103,7 +105,8 @@ class AcClient(fanatec_led_server.Client):
 
         ready = select.select([self.sock], [], [], 0.2)
         if not ready[0]:
-            print("Timeout waiting for AC server data,", self.timeout_cnt)
+            if self._verbose:
+                print("Timeout waiting for AC server data,", self.timeout_cnt)
             self.timeout_cnt += 1
             if self.timeout_cnt > 10:
                 raise Exception("Too many timeouts received!")

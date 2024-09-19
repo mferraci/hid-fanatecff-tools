@@ -9,6 +9,7 @@ import fanatec_input
 
 LEDS = 9
 
+verbose = False
 
 def set_leds(values):
     global wheel
@@ -35,6 +36,7 @@ wheels_dict = {
     fanatec_input.CSL_STEERING_WHEEL_P1_V2: fanatec_input.CSLP1V2Wheel,
     fanatec_input.CSL_ELITE_STEERING_WHEEL_WRC_ID: fanatec_input.CSLP1V2Wheel,
     fanatec_input.CLUBSPORT_STEERING_WHEEL_F1_IS_ID: fanatec_input.CSLEliteWheel,
+    fanatec_input.CLUBSPORT_STEERING_WHEEL_F1_ES_V2_ID: fanatec_input.CSLEliteWheel
 }
 
 
@@ -42,17 +44,20 @@ class Client(threading.Thread):
     def __init__(
         self,
         ev,
+        wheel,
         dbus=True,
         device=None,
         display="gear",
+        verbose=False,
     ):
         threading.Thread.__init__(self)
         if not dbus and device is None:
             raise Exception("If dbus is not used, a device must be specified!")
         self.ev = ev
         self.dbus = dbus
-        self.device = device
+        self.device = fanatec_input.get_device(verbose)
         self.display = display
+        self.wheel = wheels_dict[wheel]
         self.rate = 10
         self._revLightsPercent = 0
         self._tcInAction = 0
@@ -60,16 +65,18 @@ class Client(threading.Thread):
         self._speedKmh = 0
         self._gear = 0
         self._suggestedGear = 0
+        self._verbose = verbose
 
+
+#Wheel data is passed as argument. /wheel_id definition is broken in fanatec driver
         # hold wheel data
-        self.wheel = self.get_wheel_code()
-
-    def get_wheel_code(self):
-        base = fanatec_input.get_sysfs_base(self.device)
-        with open(base + "/wheel_id") as f:
-            # convert e.g. "0x0005\n" to "0005"
-            wheel_id = f.read().replace("\n", "")[2:]
-        return wheels_dict[wheel_id]
+        #self.wheel = self.get_wheel_code()
+    #def get_wheel_code(self):
+    #     base = fanatec_input.get_sysfs_base()
+    #    with open(base + "/wheel_id") as f:
+    #        # convert e.g. "0x0005\n" to "0005"
+    #        wheel_id = f.read().replace("\n", "")[2:]
+    #    return wheels_dict[wheel_id]
 
     def prerun(self):
         pass
@@ -83,7 +90,8 @@ class Client(threading.Thread):
 
     @staticmethod
     def rpms_to_revlights(rpms, maxrpm):
-        return max(100 * rpms / maxrpm, 0)
+        return 100 * max(0, (rpms - 0.9 * maxrpm)) / (maxrpm - 0.9 * maxrpm)
+        
 
     @property
     def revLightsPercent(self):
@@ -115,7 +123,8 @@ class Client(threading.Thread):
             self._do_run()
 
     def _do_run(self):
-        print(self, 'waiting for game connection')
+        if self._verbose:
+            print(self, 'waiting for game connection')
 
 
         self.prerun()
@@ -123,19 +132,23 @@ class Client(threading.Thread):
         if not self.dbus:
             while not self.ev.isSet():
                 try:
-                    fanatec_input.get_sysfs_base(self.device)
+                    fanatec_input.get_sysfs_base(self._verbose)
                 except Exception as e:
                     print(e)
                     self.postrun()
                     print(self, 'finished.')
                     time.sleep(1)
                     return
-
-                print("Found sysfs for device", self.device)
+                if self._verbose:
+                    print("Found sysfs for device", self.device)
 
                 try:
-                    display = self.wheel.get_sysfs("display", self.device)
-                    pedals = self.wheel.get_sysfs("rumble", self.device)
+                    display = self.wheel.get_sysfs("display")
+                    if self._verbose:
+                        print(display)
+                    pedals = self.wheel.get_sysfs("rumble")
+                    if self._verbose:
+                        print(pedals)
                     if not os.path.isfile(display):
                         display = None
                     if not os.path.isfile(pedals):
@@ -147,16 +160,6 @@ class Client(threading.Thread):
 
         if not self.ev.isSet():
             print(self, "connected")
-
-        rpms_maxed = 0
-        while not self.ev.isSet():
-            if not self.tick():
-                break
-
-            if self._revLightsPercent > 95:
-                rpms_maxed += 1
-            else:
-                rpms_maxed = 0
 
             if rpms_maxed % 2 == 1:
                 leds = [False] * 9
@@ -173,24 +176,24 @@ class Client(threading.Thread):
                     | (0xFF if self.absInAction else 0) << 8
                 )
 
-                if display is not None:
-                    display_val = str(self.speedKmh)
-                    if self.display == "gear":
-                        if self.wheel == fanatec_input.CSLEliteWheel:
-                            gear = {-1: "R", 0: "N"}
-                        elif self.wheel == fanatec_input.CSLP1V2Wheel:
-                            gear = {-1: "-1", 0: "000"}
-                        display_val = (
-                            gear[self.gear] if self.gear in gear else str(self.gear)
-                        )
+            if display is not None:
+                display_val = str(self.speedKmh)
+            if self.display == "gear":
+                if self.wheel == fanatec_input.CSLEliteWheel:
+                    gear = {-1: "R", 0: "N"}
+                elif self.wheel == fanatec_input.CSLP1V2Wheel:
+                    gear = {-1: "-1", 0: "000"}
+                display_val = (
+                    gear[self.gear] if self.gear in gear else str(self.gear)
+                )
 
-                        # print(display_val)
-                    open(display, "w").write(display_val)
+                # print(display_val)
+            open(display, "w").write(display_val)
 
-                if pedals is not None:
-                    open(pedals, "w").write(str(rumble))
-                self.wheel.get_sysfs_rpm(self.device)
-                self.wheel.set_sysfs_rpm(self._revLightsPercent, self.device)
+            if pedals is not None:
+                open(pedals, "w").write(str(rumble))
+            self.wheel.get_sysfs_rpm()
+            self.wheel.set_sysfs_rpm(self._revLightsPercent)
 
 
         self.postrun()
@@ -220,6 +223,11 @@ if __name__ == "__main__":
         help="Use dbus for communicating commands to the wheel.",
     )
     parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Explain what is being done",
+    )
+    parser.add_argument(
         "--device",
         type=str,
         help="PID of the wheel (ClubSportv2 '0001', ClubSportv2.5 '0004', ...)",
@@ -230,6 +238,12 @@ if __name__ == "__main__":
         type=str,
         help="property that is shown on display (gear, speedKmh)",
         default="gear",
+    )
+    parser.add_argument(
+        "--wheel",
+        type=str,
+        help="ID of the wheel (F1 Esport V2: 01, ClubSport P1 V2: 02, ...  )",
+        default="01",
     )
     args = parser.parse_args()
 
@@ -247,7 +261,7 @@ if __name__ == "__main__":
 
         threads = []
         for typ in [F1_23Client, AcClient, AccClient, RF2Client, WrcClient, AMS2Client]:
-            threads.append(typ(ev, args.dbus, args.device, args.display))
+            threads.append(typ(ev, args.wheel, args.dbus,  args.device, args.display, args.verbose))
 
         for thread in threads:
             thread.start()
